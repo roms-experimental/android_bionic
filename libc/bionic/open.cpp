@@ -30,6 +30,7 @@
 #include <fcntl.h>
 #include <stdarg.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 
 #include "private/bionic_fdtrack.h"
@@ -37,6 +38,18 @@
 #include "custom_rom_hide.h"
 
 extern "C" int __openat(int, const char*, int, int);
+
+// Per-process /proc/cpuinfo redirect: AdvancedAppSpoofUtils points this at a generated cpuinfo
+// blob for the app, so CPU model spoofing survives apps that parse /proc/cpuinfo directly.
+static inline const char* redirect_proc_cpuinfo(const char* pathname) {
+  if (pathname != nullptr && __predict_false(pathname[0] == '/' && strcmp(pathname, "/proc/cpuinfo") == 0)) {
+    const char* spoofed = getenv("SPOOF_CPUINFO_PATH");
+    if (spoofed != nullptr && spoofed[0] != '\0') {
+      return spoofed;
+    }
+  }
+  return pathname;
+}
 
 static inline int force_O_LARGEFILE(int flags) {
 #if defined(__LP64__)
@@ -82,6 +95,7 @@ int creat(const char* pathname, mode_t mode) {
 __strong_alias(creat64, creat);
 
 int open(const char* pathname, int flags, ...) {
+  pathname = redirect_proc_cpuinfo(pathname);
   mode_t mode = 0;
 
   if (needs_mode(flags)) {
@@ -104,6 +118,7 @@ int open(const char* pathname, int flags, ...) {
 __strong_alias(open64, open);
 
 int __open_2(const char* pathname, int flags) {
+  pathname = redirect_proc_cpuinfo(pathname);
   if (needs_mode(flags)) __fortify_fatal("open: called with O_CREAT/O_TMPFILE but no mode");
   int filtered_fd = filter_readonly_file(pathname, flags);
   if (filtered_fd >= 0) return FDTRACK_CREATE_NAME("open", finish_filtered(filtered_fd, flags));
@@ -115,6 +130,7 @@ int __open_2(const char* pathname, int flags) {
 }
 
 int openat(int fd, const char *pathname, int flags, ...) {
+  pathname = redirect_proc_cpuinfo(pathname);
   mode_t mode = 0;
 
   if (needs_mode(flags)) {
@@ -137,6 +153,7 @@ int openat(int fd, const char *pathname, int flags, ...) {
 __strong_alias(openat64, openat);
 
 int __openat_2(int fd, const char* pathname, int flags) {
+  pathname = redirect_proc_cpuinfo(pathname);
   if (needs_mode(flags)) __fortify_fatal("open: called with O_CREAT/O_TMPFILE but no mode");
   int filtered_fd = filter_readonly_file(pathname, flags);
   if (filtered_fd >= 0) return FDTRACK_CREATE_NAME("openat", finish_filtered(filtered_fd, flags));
